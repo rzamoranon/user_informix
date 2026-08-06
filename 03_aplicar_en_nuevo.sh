@@ -54,13 +54,28 @@ aplicar_usuario() {
     return
   fi
 
-  echo "  [CREAR] ${USER}  uid=${uid} home=${home} shell=${shell} grupos=${grupos_csv}"
+  # Verifica que cada grupo secundario exista en este servidor. RHEL 5 y
+  # RHEL 8 pueden tener grupos con nombres distintos (o inexistentes), y
+  # usermod -G falla completo si UNO solo de los grupos no existe.
+  local grupos_validos="" grupos_faltantes="" g
+  IFS=',' read -ra GARR <<< "${grupos_csv}"
+  for g in "${GARR[@]}"; do
+    [ -z "${g}" ] && continue
+    if getent group "${g}" >/dev/null 2>&1; then
+      grupos_validos="${grupos_validos:+${grupos_validos},}${g}"
+    else
+      grupos_faltantes="${grupos_faltantes:+${grupos_faltantes},}${g}"
+    fi
+  done
+
+  echo "  [CREAR] ${USER}  uid=${uid} home=${home} shell=${shell} grupos_ok=${grupos_validos:-ninguno}"
+  [ -n "${grupos_faltantes}" ] && echo "    [AVISO] grupo(s) inexistentes en este servidor, no se asignaran: ${grupos_faltantes} -> crear el grupo o revisar manualmente"
 
   if [ "${APPLY}" == "--apply" ]; then
     useradd -u "${uid}" -g "${gid}" -d "${home}" -m -s "${shell}" "${USER}"
     usermod -p "${hash}" "${USER}"
-    [ -n "${grupos_csv}" ] && usermod -G "${grupos_csv}" "${USER}"
-    echo "    -> creado y clave/grupos aplicados"
+    [ -n "${grupos_validos}" ] && usermod -G "${grupos_validos}" "${USER}"
+    echo "    -> creado, clave aplicada, grupos disponibles asignados"
   fi
 }
 
